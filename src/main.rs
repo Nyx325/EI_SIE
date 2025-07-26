@@ -1,28 +1,26 @@
 #![no_std]
 #![no_main]
 
-mod sensors;
-
-use crate::sensors::{AnalogReader, LightSensor};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::Adc;
-use embassy_time::Timer;
-
+use embassy_futures::select;
+use embassy_stm32::{exti::ExtiInput, gpio::Pull, init};
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
-    let adc = Adc::new(p.ADC1);
-    let mut light_sensor = LightSensor::new(p.PB0, adc, 800);
+    let p = init(Default::default());
 
-    let adc = Adc::new(p.ADC2);
-    let mut analog_reader = AnalogReader::new(p.PB1, adc);
+    // 1) Conecta la salida del RQ‑S003, p. ej. a PB1:
+    let mut ir_rx = ExtiInput::new(p.PB1, p.EXTI1, Pull::Up);
 
     loop {
-        let value = analog_reader.read().await;
-        info!("Valor potenciometro: {}", value);
-        Timer::after_millis(500).await;
+        // Detecta flanco de interrupción (cuando alguien bloquea el haz)
+        ir_rx.wait_for_falling_edge().await;
+        info!("🚶 Objeto en el haz");
+        // Espera a que el haz vuelva a verse
+        ir_rx.wait_for_rising_edge().await;
+        info!("✔️ Haz restablecido");
     }
 }
